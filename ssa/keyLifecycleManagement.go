@@ -8,40 +8,47 @@ import (
 	"database/sql"
 	"encoding/asn1"
 	"encoding/base64"
+	"errors"
 )
 
 type KeyLifeCycleManagementService struct {
-	db            *sql.DB
-	storeKeyStmnt *sql.Stmt
-	getKeyStmnt   *sql.Stmt
+	db              *sql.DB
+	storeKeyStmnt   *sql.Stmt
+	getKeyStmnt     *sql.Stmt
+	suspendKeyStmnt *sql.Stmt
 }
 
 func CreateKeyLifeCycleManagementService(db *sql.DB) (keyCreationService *KeyLifeCycleManagementService, err error) {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keystore (
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keys (
 		id TEXT PRIMARY KEY,
 		key TEXT NOT NULL,
+		keyType TEXT NOT NULL,
 		active BOOLEAN NOT NULL CHECK (active IN (0, 1)),
 		UNIQUE(id) ON CONFLICT FAIL
 	)`); err != nil {
 		return nil, err
 	}
 
-	storeKeyStmnt, err := db.Prepare(`INSERT INTO keystore
-	(id, key, active) values (?,?,1)`)
+	storeKeyStmnt, err := db.Prepare(`INSERT INTO keys
+	(id, key, active) values (?,?,?,1)`)
 	if err != nil {
 		return nil, err
 	}
 
 	getKeyStmnt, err := db.Prepare(`SELECT 
-	key FROM keystore WHERE id=? AND active=1`)
+	key, keyType FROM keys WHERE id=? AND active=1`)
 	if err != nil {
 		return nil, err
 	}
 
+	suspendKeyStmnt, err := db.Prepare(`UPDATE 
+	keys SET active=0 WHERE id=?`)
+
 	return &KeyLifeCycleManagementService{
-		db:            db,
-		storeKeyStmnt: storeKeyStmnt,
-		getKeyStmnt:   getKeyStmnt,
+		db:              db,
+		storeKeyStmnt:   storeKeyStmnt,
+		getKeyStmnt:     getKeyStmnt,
+		suspendKeyStmnt: suspendKeyStmnt,
 	}, nil
 }
 
@@ -59,7 +66,7 @@ func (s KeyLifeCycleManagementService) CreateKeyPair() (key *Key, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.storeKeyStmnt.Exec(keyId, encodePrivateKey(privateKey)); err != nil {
+	if _, err := s.storeKeyStmnt.Exec(keyId, encodePrivateKey(privateKey), "rsa"); err != nil {
 		return nil, err
 	}
 	return &Key{
@@ -91,7 +98,49 @@ func encodePrivateKey(privateKey *rsa.PrivateKey) string {
 	return base64.StdEncoding.EncodeToString(rawKey)
 }
 
+func decodePrivateKey(encodedPrivateKey string) (key *rsa.PrivateKey, err error) {
+	rawKey, err := base64.StdEncoding.DecodeString(encodedPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	pKey, err := x509.ParsePKCS1PrivateKey(rawKey)
+	if err != nil {
+		return nil, err
+	}
+	return pKey, nil
+}
+
 func getPublicKey(privateKey *rsa.PrivateKey) *rsa.PublicKey {
 	publicKey := privateKey.Public().(*rsa.PublicKey)
 	return publicKey
+}
+
+func (s KeyLifeCycleManagementService) Sign(keyId string, dtbs []byte) (signatureValue *[]byte, err error) {
+
+	var encodedKey string
+	var keyType string
+	if err := s.getKeyStmnt.QueryRow(keyId).Scan(&encodedKey, &keyType); err != nil {
+		return nil, err
+	}
+
+	if keyType != "rsa" {
+		return nil, errors.New("Unsupported key type")
+	}
+
+	pkey, err := decodePrivateKey(encodedKey)
+	if err != nil {
+		return nil, err
+	}
+	signature, err := pkey.Sign(rand.Reader, dtbs, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &signature, nil
+}
+
+func (s KeyLifeCycleManagementService) SuspendKey(keyId string) error {
+	if _, err := s.suspendKeyStmnt.Exec(keyId); err != nil {
+		return err
+	}
+	return nil
 }
