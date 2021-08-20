@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -18,7 +19,7 @@ type KeyLifeCycleManagementService struct {
 	suspendKeyStmnt *sql.Stmt
 }
 
-func CreateKeyLifeCycleManagementService(db *sql.DB) (keyCreationService *KeyLifeCycleManagementService, err error) {
+func CreateKeyLifeCycleManagementService(db *sql.DB) (keyLifeCycleManagementService *KeyLifeCycleManagementService, err error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keys (
 		id TEXT PRIMARY KEY,
 		key TEXT NOT NULL,
@@ -43,6 +44,9 @@ func CreateKeyLifeCycleManagementService(db *sql.DB) (keyCreationService *KeyLif
 
 	suspendKeyStmnt, err := db.Prepare(`UPDATE 
 	keys SET active=0 WHERE id=?`)
+	if err != nil {
+		return nil, err
+	}
 
 	return &KeyLifeCycleManagementService{
 		db:              db,
@@ -115,7 +119,7 @@ func getPublicKey(privateKey *rsa.PrivateKey) *rsa.PublicKey {
 	return publicKey
 }
 
-func (s KeyLifeCycleManagementService) Sign(keyId string, dtbs []byte) (signatureValue *[]byte, err error) {
+func (s KeyLifeCycleManagementService) Sign(keyId string, hash []byte) (signatureValue *[]byte, err error) {
 
 	var encodedKey string
 	var keyType string
@@ -131,7 +135,7 @@ func (s KeyLifeCycleManagementService) Sign(keyId string, dtbs []byte) (signatur
 	if err != nil {
 		return nil, err
 	}
-	signature, err := pkey.Sign(rand.Reader, dtbs, nil)
+	signature, err := rsa.SignPKCS1v15(rand.Reader, pkey, crypto.SHA256, hash)
 	if err != nil {
 		return nil, err
 	}
