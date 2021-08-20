@@ -12,6 +12,12 @@ import (
 	"errors"
 )
 
+type KeyLifeCycleManagement interface {
+	CreateKeyPair() (key *Key, err error)
+	Sign(keyId string, hash []byte) (signatureValue *[]byte, err error)
+	SuspendKey(keyId string) error
+}
+
 type KeyLifeCycleManagementService struct {
 	db              *sql.DB
 	storeKeyStmnt   *sql.Stmt
@@ -61,7 +67,7 @@ type Key struct {
 	PublicKey *rsa.PublicKey
 }
 
-func (s KeyLifeCycleManagementService) CreateKeyPair() (key *Key, err error) {
+func (s *KeyLifeCycleManagementService) CreateKeyPair() (key *Key, err error) {
 	privateKey, err := createRSAKeyPair(2048)
 	if err != nil {
 		return nil, err
@@ -119,7 +125,7 @@ func getPublicKey(privateKey *rsa.PrivateKey) *rsa.PublicKey {
 	return publicKey
 }
 
-func (s KeyLifeCycleManagementService) Sign(keyId string, hash []byte) (signatureValue *[]byte, err error) {
+func (s *KeyLifeCycleManagementService) Sign(keyId string, hash []byte) (signatureValue *[]byte, err error) {
 
 	var encodedKey string
 	var keyType string

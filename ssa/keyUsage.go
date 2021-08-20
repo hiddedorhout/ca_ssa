@@ -8,11 +8,16 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type KeyUsage interface {
+	CreateAndBind(password string) (key *Key, err error)
+	Sign(keyId string, hashedPassword string, tbsData []byte, signInfo SignInfo) (signature *[]byte, err error)
+}
+
 type KeyUsageService struct {
 	db                  *sql.DB
 	bindKeyStmnt        *sql.Stmt
 	getPasswordStmnt    *sql.Stmt
-	keyLifecycleService KeyLifeCycleManagementService
+	keyLifecycleService KeyLifeCycleManagement
 }
 
 var (
@@ -21,7 +26,7 @@ var (
 	sha256WithRSAEncryptionOid = []int{1, 2, 840, 113549, 1, 1, 11}
 )
 
-func CreateKeyUsageService(keyLifecycleService *KeyLifeCycleManagementService, db *sql.DB) (keyUsageServe *KeyUsageService, err error) {
+func CreateKeyUsageService(keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB) (keyUsageService *KeyUsageService, err error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keyBindings (
 		keyId TEXT NOT NULL,
 		passwordDigest TEXT NOT NULL,
@@ -37,7 +42,7 @@ func CreateKeyUsageService(keyLifecycleService *KeyLifeCycleManagementService, d
 	}
 
 	getPasswordStmnt, err := db.Prepare(`SELECT 
-	keyId, passwordDigest FROM keyBindings WHERE passwordDigest=?`)
+	passwordDigest FROM keyBindings WHERE keyId=?`)
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +51,11 @@ func CreateKeyUsageService(keyLifecycleService *KeyLifeCycleManagementService, d
 		db:                  db,
 		bindKeyStmnt:        bindKeyStmnt,
 		getPasswordStmnt:    getPasswordStmnt,
-		keyLifecycleService: *keyLifecycleService,
+		keyLifecycleService: *keyLifeCycleManagementService,
 	}, nil
 }
 
-func (s KeyUsageService) CreateAndBind(password string) (key *Key, err error) {
+func (s *KeyUsageService) CreateAndBind(password string) (key *Key, err error) {
 	pwd, err := hashAndSalt([]byte(password))
 	if err != nil {
 		return nil, err
@@ -91,10 +96,19 @@ type SignInfo struct {
 	SignAlgo pkix.AlgorithmIdentifier
 }
 
-func (s KeyUsageService) Sign(keyId string, hashedPassword string, tbsData []byte, signInfo SignInfo) (signature *[]byte, err error) {
+func (s *KeyUsageService) Sign(keyId string, plainPwd string, tbsData []byte, signInfo SignInfo) (signature *[]byte, err error) {
 	if (signInfo.SignAlgo.Algorithm.Equal(rsaEncryptionOid) && signInfo.HashAlgo.Algorithm.Equal(sha256HashAlgoOid)) ||
 		signInfo.SignAlgo.Algorithm.Equal(sha256WithRSAEncryptionOid) {
-		return s.keyLifecycleService.Sign(keyId, tbsData)
+
+		var encodedPwd string
+		if err := s.getPasswordStmnt.QueryRow(keyId).Scan(&encodedPwd); err != nil {
+			return nil, err
+		}
+		if comparePwd([]byte(encodedPwd), []byte(plainPwd)) {
+			return s.keyLifecycleService.Sign(keyId, tbsData)
+		} else {
+			return nil, errors.New("Invalid credentials")
+		}
 	} else {
 		return nil, errors.New("Unsuported signing/ hash algorithm")
 	}

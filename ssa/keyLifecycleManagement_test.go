@@ -7,7 +7,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
-func TestKeyService(t *testing.T) {
+func TestKeyLifeCycleManagementService(t *testing.T) {
 
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -41,6 +41,12 @@ func TestKeyService(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"key", "keyType"}).AddRow(pkey, "rsa"))
 	dtbs := hash([]byte("hello"))
 	if _, err := keyLifecycleService.Sign(keyPair.KeyId, dtbs); err != nil {
+		t.Fatal(err)
+	}
+
+	mock.ExpectExec("UPDATE keys SET").WithArgs(keyPair.KeyId).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := keyLifecycleService.SuspendKey(keyPair.KeyId); err != nil {
 		t.Fatal(err)
 	}
 }
