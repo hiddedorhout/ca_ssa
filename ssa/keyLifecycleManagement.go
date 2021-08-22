@@ -37,7 +37,7 @@ func CreateKeyLifeCycleManagementService(db *sql.DB) (keyLifeCycleManagementServ
 	}
 
 	storeKeyStmnt, err := db.Prepare(`INSERT INTO keys
-	(id, key, active) values (?,?,?,1)`)
+	(id, key, keyType, active) values (?,?,?,1)`)
 	if err != nil {
 		return nil, err
 	}

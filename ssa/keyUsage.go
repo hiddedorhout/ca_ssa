@@ -1,15 +1,17 @@
 package ssa
 
 import (
+	"crypto/rsa"
 	"crypto/x509/pkix"
 	"database/sql"
 	"errors"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type KeyUsage interface {
-	CreateAndBind(password string) (key *Key, err error)
+	CreateAndBind(password string) (user *User, err error)
 	Sign(keyId string, hashedPassword string, tbsData []byte, signInfo SignInfo) (signature *[]byte, err error)
 }
 
@@ -20,6 +22,11 @@ type KeyUsageService struct {
 	keyLifecycleService KeyLifeCycleManagement
 }
 
+type User struct {
+	UserId    string
+	PublicKey *rsa.PublicKey
+}
+
 var (
 	rsaEncryptionOid           = []int{1, 2, 840, 113549, 1, 1, 1}
 	sha256HashAlgoOid          = []int{2, 16, 840, 1, 101, 3, 4, 2, 1}
@@ -28,15 +35,16 @@ var (
 
 func CreateKeyUsageService(keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB) (keyUsageService *KeyUsageService, err error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keyBindings (
+		userId TEXT NOT NULL,
 		keyId TEXT NOT NULL,
 		passwordDigest TEXT NOT NULL,
-		UNIQUE(keyId) ON CONFLICT FAIL
+		UNIQUE(userId, keyId) ON CONFLICT FAIL
 	)`); err != nil {
 		return nil, err
 	}
 
 	bindKeyStmnt, err := db.Prepare(`INSERT INTO keyBindings
-	(keyId, passwordDigest) values (?,?)`)
+	(userId, keyId, passwordDigest) values (?, ?,?)`)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +63,7 @@ func CreateKeyUsageService(keyLifeCycleManagementService *KeyLifeCycleManagement
 	}, nil
 }
 
-func (s *KeyUsageService) CreateAndBind(password string) (key *Key, err error) {
+func (s *KeyUsageService) CreateAndBind(password string) (user *User, err error) {
 	pwd, err := hashAndSalt([]byte(password))
 	if err != nil {
 		return nil, err
@@ -66,11 +74,16 @@ func (s *KeyUsageService) CreateAndBind(password string) (key *Key, err error) {
 		return nil, err
 	}
 
-	if _, err := s.bindKeyStmnt.Exec(keyPair.KeyId, pwd); err != nil {
+	userId := uuid.NewString()
+
+	if _, err := s.bindKeyStmnt.Exec(userId, keyPair.KeyId, pwd); err != nil {
 		return nil, err
 	}
 
-	return keyPair, nil
+	return &User{
+		UserId:    userId,
+		PublicKey: keyPair.PublicKey,
+	}, nil
 }
 
 func hashAndSalt(pwd []byte) (encryptedPwd *string, err error) {

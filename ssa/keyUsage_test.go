@@ -55,7 +55,7 @@ func TestKeyUsageService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mock.ExpectExec("INSERT INTO keyBindings").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO keyBindings").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 	createKeyPairMock = func() (key *Key, err error) {
 		return &Key{
 			KeyId:     "keyId",
@@ -63,12 +63,12 @@ func TestKeyUsageService(t *testing.T) {
 		}, nil
 	}
 
-	key, err := keyUsageService.CreateAndBind(password)
+	user, err := keyUsageService.CreateAndBind(password)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !testPkey.PublicKey.Equal(key.PublicKey) {
+	if !testPkey.PublicKey.Equal(user.PublicKey) {
 		t.Fatal(errors.New("TestKey was not equal to service key response"))
 	}
 
