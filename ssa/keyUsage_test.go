@@ -9,6 +9,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// KeyLiceCycleMock
 type mockKeyLifeCycleManagementService struct{}
 
 var createKeyPairMock func() (key *Key, err error)
@@ -29,6 +30,34 @@ func (m mockKeyLifeCycleManagementService) SuspendKey(keyId string) error {
 	return suspendKeyMock(keyId)
 }
 
+// SessionServiceMock
+type mockSessionManagementService struct{}
+
+var createSessionMock func(keyId string) (sessionId *string, err error)
+
+func (sms mockSessionManagementService) CreateSession(keyId string) (sessionId *string, err error) {
+	return createSessionMock(keyId)
+}
+
+var updateSessionMock func(sessionId string) error
+
+func (sms mockSessionManagementService) UpdateSession(sessionId string, event Event) error {
+	return updateSessionMock(sessionId)
+}
+
+var terminaSessionMock func(sessionId, reason string) error
+
+func (sms mockSessionManagementService) TerminateSession(sessionId, reason string) error {
+	return terminaSessionMock(sessionId, reason)
+}
+
+var getSessionStateMock func(sessionId string) (sessionState *SessionState, err error)
+
+func (sms mockSessionManagementService) GetSessionState(sessionId string) (sessionState *SessionState, err error) {
+	return getSessionStateMock(sessionId)
+}
+
+// Test
 func TestKeyUsageService(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -39,6 +68,7 @@ func TestKeyUsageService(t *testing.T) {
 	mock.ExpectExec("CREATE TABLE IF NOT EXISTS keyBindings").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectPrepare("INSERT INTO keyBindings")
 	mock.ExpectPrepare("SELECT passwordDigest FROM keyBindings")
+	mock.ExpectPrepare("SELECT keyId FROM keyBindings")
 
 	var klms KeyLifeCycleManagement
 
@@ -90,6 +120,18 @@ func TestKeyUsageService(t *testing.T) {
 
 	if _, err := keyUsageService.Sign(mockKeyId, password, tbsd, signIfo); err != nil {
 		t.Fatal(err)
+	}
+
+	mock.ExpectQuery("SELECT keyId FROM keyBindings").WithArgs(user.UserId).
+		WillReturnRows(sqlmock.NewRows([]string{"keyId"}).AddRow(string(mockKeyId)))
+
+	keyId, err := keyUsageService.GetKeyId(user.UserId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if *keyId != mockKeyId {
+		t.Fatalf("Invalid keyId")
 	}
 
 }

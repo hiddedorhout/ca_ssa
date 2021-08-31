@@ -10,9 +10,11 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+var baseUrl string
 var port string
 
 func init() {
+	baseUrl = "http://localhost"
 	port = "3000"
 }
 
@@ -21,7 +23,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ssaService, err := ssa.NewSsaService(db)
+	ssaService, err := ssa.NewSsaService(db, baseUrl, port)
 	if err != nil {
 		log.Fatal(err)
 	}

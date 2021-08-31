@@ -6,12 +6,22 @@ type SsaService struct {
 	db                            *sql.DB
 	keyLifeCycleManagementService *KeyLifeCycleManagement
 	keyUsageService               *KeyUsage
+	sessionManagementService      *SessionManagement
+	baseUrl                       string
+	servicePort                   string
 }
 
-func NewSsaService(db *sql.DB) (ssaService *SsaService, err error) {
+func NewSsaService(db *sql.DB, baseUrl, port string) (ssaService *SsaService, err error) {
 
 	var klms KeyLifeCycleManagement
 	var kus KeyUsage
+	var sms SessionManagement
+
+	sessionManagementService, err := CreateSessionService(db)
+	if err != nil {
+		return nil, err
+	}
+	sms = sessionManagementService
 
 	keyLifecycleService, err := CreateKeyLifeCycleManagementService(db)
 	if err != nil {
@@ -29,5 +39,8 @@ func NewSsaService(db *sql.DB) (ssaService *SsaService, err error) {
 		db:                            db,
 		keyLifeCycleManagementService: &klms,
 		keyUsageService:               &kus,
+		sessionManagementService:      &sms,
+		baseUrl:                       baseUrl,
+		servicePort:                   port,
 	}, nil
 }

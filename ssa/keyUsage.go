@@ -13,13 +13,16 @@ import (
 type KeyUsage interface {
 	CreateAndBind(password string) (user *User, err error)
 	Sign(keyId string, hashedPassword string, tbsData []byte, signInfo SignInfo) (signature *[]byte, err error)
+	GetKeyId(userId string) (keyId *string, err error)
 }
 
 type KeyUsageService struct {
 	db                  *sql.DB
 	bindKeyStmnt        *sql.Stmt
 	getPasswordStmnt    *sql.Stmt
-	keyLifecycleService KeyLifeCycleManagement
+	getKeyIdStmnt       *sql.Stmt
+	sessionService      *SessionManagement
+	keyLifecycleService *KeyLifeCycleManagement
 }
 
 type User struct {
@@ -55,11 +58,18 @@ func CreateKeyUsageService(keyLifeCycleManagementService *KeyLifeCycleManagement
 		return nil, err
 	}
 
+	getKeyIdStmnt, err := db.Prepare(`SELECT 
+	keyId FROM keyBindings WHERE userId=?`)
+	if err != nil {
+		return nil, err
+	}
+
 	return &KeyUsageService{
 		db:                  db,
 		bindKeyStmnt:        bindKeyStmnt,
 		getPasswordStmnt:    getPasswordStmnt,
-		keyLifecycleService: *keyLifeCycleManagementService,
+		getKeyIdStmnt:       getKeyIdStmnt,
+		keyLifecycleService: keyLifeCycleManagementService,
 	}, nil
 }
 
@@ -68,8 +78,9 @@ func (s *KeyUsageService) CreateAndBind(password string) (user *User, err error)
 	if err != nil {
 		return nil, err
 	}
+	kls := *s.keyLifecycleService
 
-	keyPair, err := s.keyLifecycleService.CreateKeyPair()
+	keyPair, err := kls.CreateKeyPair()
 	if err != nil {
 		return nil, err
 	}
@@ -118,11 +129,24 @@ func (s *KeyUsageService) Sign(keyId string, plainPwd string, tbsData []byte, si
 			return nil, err
 		}
 		if comparePwd([]byte(encodedPwd), []byte(plainPwd)) {
-			return s.keyLifecycleService.Sign(keyId, tbsData)
+			kls := *s.keyLifecycleService
+			signature, err := kls.Sign(keyId, tbsData)
+			if err != nil {
+				return nil, err
+			}
+			return signature, nil
 		} else {
 			return nil, errors.New("Invalid credentials")
 		}
 	} else {
 		return nil, errors.New("Unsuported signing/ hash algorithm")
 	}
+}
+
+func (s *KeyUsageService) GetKeyId(userId string) (keyId *string, err error) {
+	var key string
+	if err := s.getKeyIdStmnt.QueryRow(userId).Scan(&key); err != nil {
+		return nil, err
+	}
+	return &key, nil
 }
