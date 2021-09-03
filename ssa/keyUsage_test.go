@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
 	"testing"
@@ -28,6 +29,12 @@ var suspendKeyMock func(keyId string) error
 
 func (m mockKeyLifeCycleManagementService) SuspendKey(keyId string) error {
 	return suspendKeyMock(keyId)
+}
+
+var signCsrMock func(keyId string, template x509.CertificateRequest) (csr *[]byte, err error)
+
+func (m mockKeyLifeCycleManagementService) SignCsr(keyId string, template x509.CertificateRequest) (csr *[]byte, err error) {
+	return signCsrMock(keyId, template)
 }
 
 // SessionServiceMock

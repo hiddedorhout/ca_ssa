@@ -2,9 +2,12 @@ package ssa
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/google/uuid"
 )
 
 func TestKeyLifeCycleManagementService(t *testing.T) {
@@ -49,6 +52,28 @@ func TestKeyLifeCycleManagementService(t *testing.T) {
 	if err := keyLifecycleService.SuspendKey(keyPair.KeyId); err != nil {
 		t.Fatal(err)
 	}
+
+	mock.ExpectQuery("SELECT key, keyType FROM keys").WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "keyType"}).AddRow(pkey, "rsa"))
+
+	cn := uuid.NewString()
+	templateCsr := x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: cn},
+	}
+	csr, err := keyLifecycleService.SignCsr(keyPair.KeyId, templateCsr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	signedCsr, err := x509.ParseCertificateRequest(*csr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if signedCsr.Subject.CommonName != cn {
+		t.Fatal("Unable to create valid signed CSR")
+	}
+
 }
 
 func createMockKeyPair() (key *Key, pkey *string, err error) {

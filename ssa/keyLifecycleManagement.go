@@ -15,6 +15,7 @@ import (
 type KeyLifeCycleManagement interface {
 	CreateKeyPair() (key *Key, err error)
 	Sign(keyId string, hash []byte) (signatureValue *[]byte, err error)
+	SignCsr(keyId string, unsignedCsr x509.CertificateRequest) (csr *[]byte, err error)
 	SuspendKey(keyId string) error
 }
 
@@ -127,6 +128,19 @@ func getPublicKey(privateKey *rsa.PrivateKey) *rsa.PublicKey {
 
 func (s *KeyLifeCycleManagementService) Sign(keyId string, hash []byte) (signatureValue *[]byte, err error) {
 
+	pkey, err := s.getKey(keyId)
+	if err != nil {
+		return nil, err
+	}
+
+	signature, err := rsa.SignPKCS1v15(rand.Reader, pkey, crypto.SHA256, hash)
+	if err != nil {
+		return nil, err
+	}
+	return &signature, nil
+}
+
+func (s *KeyLifeCycleManagementService) getKey(keyId string) (*rsa.PrivateKey, error) {
 	var encodedKey string
 	var keyType string
 	if err := s.getKeyStmnt.QueryRow(keyId).Scan(&encodedKey, &keyType); err != nil {
@@ -141,11 +155,7 @@ func (s *KeyLifeCycleManagementService) Sign(keyId string, hash []byte) (signatu
 	if err != nil {
 		return nil, err
 	}
-	signature, err := rsa.SignPKCS1v15(rand.Reader, pkey, crypto.SHA256, hash)
-	if err != nil {
-		return nil, err
-	}
-	return &signature, nil
+	return pkey, nil
 }
 
 func (s KeyLifeCycleManagementService) SuspendKey(keyId string) error {
@@ -153,4 +163,18 @@ func (s KeyLifeCycleManagementService) SuspendKey(keyId string) error {
 		return err
 	}
 	return nil
+}
+
+func (s KeyLifeCycleManagementService) SignCsr(keyId string, unsignedCsr x509.CertificateRequest) (csr *[]byte, err error) {
+
+	pkey, err := s.getKey(keyId)
+	if err != nil {
+		return nil, err
+	}
+
+	csreq, err := x509.CreateCertificateRequest(rand.Reader, &unsignedCsr, pkey)
+	if err != nil {
+		return nil, err
+	}
+	return &csreq, nil
 }
