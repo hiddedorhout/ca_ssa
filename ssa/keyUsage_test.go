@@ -129,8 +129,10 @@ func TestKeyUsageService(t *testing.T) {
 		return nil
 	}
 
+	sigMock := []byte("signature")
+
 	signMock = func(keyId string, hash []byte) (signatureValue *[]byte, err error) {
-		signature := []byte("signature")
+		signature := sigMock
 		return &signature, nil
 	}
 
@@ -153,6 +155,26 @@ func TestKeyUsageService(t *testing.T) {
 
 	if *keyId != mockKeyId {
 		t.Fatalf("Invalid keyId")
+	}
+
+	getSessionStateMock = func(sessionId string) (sessionState *SessionState, err error) {
+		state := SessionState{
+			state: SigningState{
+				currentStateName: signedName,
+				userId:           user.UserId,
+				keyId:            mockKeyId,
+				dtbsr:            tbsd,
+				signInfo:         signInfo,
+				terminated:       false,
+				signatureValue:   sigMock,
+			},
+		}
+
+		return &state, nil
+	}
+
+	if _, err := keyUsageService.GetSignature(sessionId); err != nil {
+		t.Fatalf(err.Error())
 	}
 
 }
