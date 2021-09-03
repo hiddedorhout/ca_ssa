@@ -2,6 +2,7 @@ package ssa
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 
@@ -22,7 +23,12 @@ type SessionService struct {
 }
 
 type SessionState struct {
-	events []Event
+	state SigningState
+}
+
+type State interface {
+	getStateName() string
+	isTerminated() bool
 }
 
 type Event interface {
@@ -47,7 +53,9 @@ func (si *SigningSessionInitiated) getName() string {
 
 // Type of event
 type SignatureRequested struct {
-	DataToBeSigned string `json:"dtbs"`
+	KeyId          string   `json:"keyId"`
+	DataToBeSigned string   `json:"dtbs"`
+	SignInfo       SignInfo `json:"signInfo"`
 }
 
 func (sr *SignatureRequested) getName() string {
@@ -70,6 +78,56 @@ type Terminated struct {
 
 func (s *Terminated) getName() string {
 	return terminatedName
+}
+
+type SigningState struct {
+	currentStateName string
+	userId           string
+	keyId            string
+	dtbsr            []byte
+	signInfo         SignInfo
+	signatureValue   []byte
+	terminated       bool
+}
+
+func (s *SigningState) getStateName() string {
+	return s.currentStateName
+}
+
+func (s *SigningState) isTerminated() bool {
+	return s.terminated
+}
+
+func (s *SigningState) getKeyId() (*string, error) {
+	if len(s.keyId) == 0 {
+		return nil, errors.New("keyId not set")
+	} else {
+		return &s.keyId, nil
+	}
+}
+
+func (s *SigningState) getDtbsr() (*[]byte, error) {
+	if len(s.dtbsr) == 0 {
+		return nil, errors.New("dtbsr not set")
+	} else {
+		return &s.dtbsr, nil
+	}
+}
+
+func (s *SigningState) getSignInfo() (*SignInfo, error) {
+	if len(s.signInfo.SignAlgo.Algorithm.String()) == 0 {
+		return nil, errors.New("SignInfo not set")
+	} else {
+		return &s.signInfo, nil
+	}
+}
+
+func (s *SigningState) getSignatureValue() (*[]byte, error) {
+	if len(s.signatureValue) == 0 {
+		return nil, errors.New("Signature value not set")
+	} else {
+		return &s.signatureValue, nil
+	}
 }
 
 func CreateSessionService(db *sql.DB) (sessionService *SessionService, err error) {
@@ -208,7 +266,63 @@ func (s *SessionService) GetSessionState(sessionId string) (sessionState *Sessio
 		}
 
 	}
+	state, err := eventsToState(events)
+	if err != nil {
+		return nil, err
+	}
+
 	return &SessionState{
-		events: events,
+		state: *state,
+	}, nil
+}
+
+func eventsToState(events []Event) (*SigningState, error) {
+	var userId string
+	var keyId string
+	var dtbsr []byte
+	var signInfo SignInfo
+	var signatureValue []byte
+	var isTerminated bool = false
+
+	var eventsNames []string
+	for _, e := range events {
+		switch e.getName() {
+		case terminatedName:
+			isTerminated = true
+			eventsNames = append(eventsNames, e.getName())
+		case signatureInitatedName:
+			init := e.(*SigningSessionInitiated)
+			userId = init.UserId
+			eventsNames = append(eventsNames, e.getName())
+		case signatureRequestedName:
+			srn := e.(*SignatureRequested)
+			tbsData, err := base64.StdEncoding.DecodeString(srn.DataToBeSigned)
+			if err != nil {
+				return nil, err
+			}
+			signInfo = srn.SignInfo
+			dtbsr = tbsData
+			keyId = srn.KeyId
+			eventsNames = append(eventsNames, e.getName())
+		case signedName:
+			s := e.(*Signed)
+			sv, err := base64.StdEncoding.DecodeString(s.SignatureValue)
+			if err != nil {
+				return nil, err
+			}
+			signatureValue = sv
+			eventsNames = append(eventsNames, e.getName())
+		}
+
+	}
+
+	return &SigningState{
+		currentStateName: eventsNames[len(eventsNames)-1],
+		userId:           userId,
+		keyId:            keyId,
+		dtbsr:            dtbsr,
+		signInfo:         signInfo,
+		signatureValue:   signatureValue,
+		terminated:       isTerminated,
 	}, nil
 }

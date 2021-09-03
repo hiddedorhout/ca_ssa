@@ -4,6 +4,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509/pkix"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 
 	"github.com/google/uuid"
@@ -12,8 +13,9 @@ import (
 
 type KeyUsage interface {
 	CreateAndBind(password string) (user *User, err error)
-	Sign(keyId string, hashedPassword string, tbsData []byte, signInfo SignInfo) (signature *[]byte, err error)
+	Sign(sessionId, plainPwd string) error
 	GetKeyId(userId string) (keyId *string, err error)
+	GetSignature(sessionId string) (signatureValue *[]byte, err error)
 }
 
 type KeyUsageService struct {
@@ -36,7 +38,7 @@ var (
 	sha256WithRSAEncryptionOid = []int{1, 2, 840, 113549, 1, 1, 11}
 )
 
-func CreateKeyUsageService(keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB) (keyUsageService *KeyUsageService, err error) {
+func CreateKeyUsageService(sessionManagementService *SessionManagement, keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB) (keyUsageService *KeyUsageService, err error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keyBindings (
 		userId TEXT NOT NULL,
 		keyId TEXT NOT NULL,
@@ -70,6 +72,7 @@ func CreateKeyUsageService(keyLifeCycleManagementService *KeyLifeCycleManagement
 		getPasswordStmnt:    getPasswordStmnt,
 		getKeyIdStmnt:       getKeyIdStmnt,
 		keyLifecycleService: keyLifeCycleManagementService,
+		sessionService:      sessionManagementService,
 	}, nil
 }
 
@@ -116,30 +119,56 @@ func comparePwd(hashedPwd, plainPwd []byte) bool {
 }
 
 type SignInfo struct {
-	HashAlgo pkix.AlgorithmIdentifier
-	SignAlgo pkix.AlgorithmIdentifier
+	HashAlgo pkix.AlgorithmIdentifier `json:"hashAlgo"`
+	SignAlgo pkix.AlgorithmIdentifier `json:"signAlgo"`
 }
 
-func (s *KeyUsageService) Sign(keyId string, plainPwd string, tbsData []byte, signInfo SignInfo) (signature *[]byte, err error) {
-	if (signInfo.SignAlgo.Algorithm.Equal(rsaEncryptionOid) && signInfo.HashAlgo.Algorithm.Equal(sha256HashAlgoOid)) ||
-		signInfo.SignAlgo.Algorithm.Equal(sha256WithRSAEncryptionOid) {
+func (s *KeyUsageService) Sign(sessionId, plainPwd string) error {
+	sms := *s.sessionService
+	signingSessionState, err := sms.GetSessionState(sessionId)
+	if err != nil {
+		return err
+	}
 
-		var encodedPwd string
-		if err := s.getPasswordStmnt.QueryRow(keyId).Scan(&encodedPwd); err != nil {
-			return nil, err
+	if signingSessionState.state.isTerminated() {
+		return errors.New("Signing Session terminated")
+	}
+
+	switch signingSessionState.state.getStateName() {
+	case signatureRequestedName:
+		keyId, err := signingSessionState.state.getKeyId()
+		dtbsr, err := signingSessionState.state.getDtbsr()
+		signInfo, err := signingSessionState.state.getSignInfo()
+		if err != nil {
+			return err
 		}
-		if comparePwd([]byte(encodedPwd), []byte(plainPwd)) {
-			kls := *s.keyLifecycleService
-			signature, err := kls.Sign(keyId, tbsData)
-			if err != nil {
-				return nil, err
+		if (signInfo.SignAlgo.Algorithm.Equal(rsaEncryptionOid) && signInfo.HashAlgo.Algorithm.Equal(sha256HashAlgoOid)) ||
+			signInfo.SignAlgo.Algorithm.Equal(sha256WithRSAEncryptionOid) {
+
+			var encodedPwd string
+			if err := s.getPasswordStmnt.QueryRow(keyId).Scan(&encodedPwd); err != nil {
+				return err
 			}
-			return signature, nil
+			if comparePwd([]byte(encodedPwd), []byte(plainPwd)) {
+				kls := *s.keyLifecycleService
+				signature, err := kls.Sign(*keyId, *dtbsr)
+				if err != nil {
+					return err
+				}
+
+				return sms.UpdateSession(sessionId, &Signed{
+					SignatureValue: base64.StdEncoding.EncodeToString(*signature),
+				})
+
+			} else {
+				return errors.New("Invalid credentials")
+			}
 		} else {
-			return nil, errors.New("Invalid credentials")
+			return errors.New("Unsuported signing/ hash algorithm")
 		}
-	} else {
-		return nil, errors.New("Unsuported signing/ hash algorithm")
+
+	default:
+		return errors.New("No signature request found for this session")
 	}
 }
 
@@ -149,4 +178,28 @@ func (s *KeyUsageService) GetKeyId(userId string) (keyId *string, err error) {
 		return nil, err
 	}
 	return &key, nil
+}
+
+func (s *KeyUsageService) GetSignature(sessionId string) (signatureValue *[]byte, err error) {
+	sms := *s.sessionService
+	signingSessionState, err := sms.GetSessionState(sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	if signingSessionState.state.isTerminated() {
+		return nil, errors.New("Session terminated")
+	}
+
+	state := signingSessionState.state.getStateName()
+	switch state {
+	case signedName:
+		signature, err := signingSessionState.state.getSignatureValue()
+		if err != nil {
+			return nil, err
+		}
+		return signature, nil
+	default:
+		return nil, errors.New("No signature value found")
+	}
 }

@@ -71,10 +71,12 @@ func TestKeyUsageService(t *testing.T) {
 	mock.ExpectPrepare("SELECT keyId FROM keyBindings")
 
 	var klms KeyLifeCycleManagement
+	var sms SessionManagement
 
 	klms = mockKeyLifeCycleManagementService{}
+	sms = mockSessionManagementService{}
 
-	keyUsageService, err := CreateKeyUsageService(&klms, db)
+	keyUsageService, err := CreateKeyUsageService(&sms, &klms, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +106,27 @@ func TestKeyUsageService(t *testing.T) {
 
 	mockKeyId := "keyId"
 	tbsd := []byte("tbs")
-	signIfo := SignInfo{
+	signInfo := SignInfo{
 		SignAlgo: pkix.AlgorithmIdentifier{Algorithm: []int{1, 2, 840, 113549, 1, 1, 11}},
+	}
+
+	sessionId := "sessionId"
+	getSessionStateMock = func(sessionId string) (sessionState *SessionState, err error) {
+		state := SessionState{
+			state: SigningState{
+				currentStateName: signatureRequestedName,
+				userId:           user.UserId,
+				keyId:            mockKeyId,
+				dtbsr:            tbsd,
+				signInfo:         signInfo,
+				terminated:       false,
+			},
+		}
+
+		return &state, nil
+	}
+	updateSessionMock = func(sessionId string) error {
+		return nil
 	}
 
 	signMock = func(keyId string, hash []byte) (signatureValue *[]byte, err error) {
@@ -118,7 +139,7 @@ func TestKeyUsageService(t *testing.T) {
 	mock.ExpectQuery("SELECT passwordDigest FROM keyBindings").WithArgs(mockKeyId).
 		WillReturnRows(sqlmock.NewRows([]string{"passwordDigest"}).AddRow(string(hashedPassword)))
 
-	if _, err := keyUsageService.Sign(mockKeyId, password, tbsd, signIfo); err != nil {
+	if err := keyUsageService.Sign(sessionId, password); err != nil {
 		t.Fatal(err)
 	}
 

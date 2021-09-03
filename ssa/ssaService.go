@@ -1,6 +1,9 @@
 package ssa
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 type SsaService struct {
 	db                            *sql.DB
@@ -8,7 +11,6 @@ type SsaService struct {
 	keyUsageService               *KeyUsage
 	sessionManagementService      *SessionManagement
 	baseUrl                       string
-	servicePort                   string
 }
 
 func NewSsaService(db *sql.DB, baseUrl, port string) (ssaService *SsaService, err error) {
@@ -29,18 +31,24 @@ func NewSsaService(db *sql.DB, baseUrl, port string) (ssaService *SsaService, er
 	}
 	klms = keyLifecycleService
 
-	keyUsageService, err := CreateKeyUsageService(&klms, db)
+	keyUsageService, err := CreateKeyUsageService(&sms, &klms, db)
 	if err != nil {
 		return nil, err
 	}
 	kus = keyUsageService
+
+	var optionalPort string
+	if port == "" {
+		optionalPort = ""
+	} else {
+		optionalPort = fmt.Sprintf(":%s", port)
+	}
 
 	return &SsaService{
 		db:                            db,
 		keyLifeCycleManagementService: &klms,
 		keyUsageService:               &kus,
 		sessionManagementService:      &sms,
-		baseUrl:                       baseUrl,
-		servicePort:                   port,
+		baseUrl:                       fmt.Sprintf("%s%s", baseUrl, optionalPort),
 	}, nil
 }
