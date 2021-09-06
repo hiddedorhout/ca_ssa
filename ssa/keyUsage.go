@@ -2,12 +2,12 @@ package ssa
 
 import (
 	"crypto/rsa"
-	"crypto/x509/pkix"
 	"database/sql"
 	"encoding/base64"
 	"errors"
 
 	"github.com/google/uuid"
+	sm "github.com/hiddedorhout/ca_ssa/session"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,7 +23,7 @@ type KeyUsageService struct {
 	bindKeyStmnt        *sql.Stmt
 	getPasswordStmnt    *sql.Stmt
 	getKeyIdStmnt       *sql.Stmt
-	sessionService      *SessionManagement
+	sessionService      *sm.SessionManagement
 	keyLifecycleService *KeyLifeCycleManagement
 }
 
@@ -38,7 +38,7 @@ var (
 	sha256WithRSAEncryptionOid = []int{1, 2, 840, 113549, 1, 1, 11}
 )
 
-func CreateKeyUsageService(sessionManagementService *SessionManagement, keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB) (keyUsageService *KeyUsageService, err error) {
+func CreateKeyUsageService(sessionManagementService *sm.SessionManagement, keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB) (keyUsageService *KeyUsageService, err error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keyBindings (
 		userId TEXT NOT NULL,
 		keyId TEXT NOT NULL,
@@ -118,11 +118,6 @@ func comparePwd(hashedPwd, plainPwd []byte) bool {
 	return true
 }
 
-type SignInfo struct {
-	HashAlgo pkix.AlgorithmIdentifier `json:"hashAlgo"`
-	SignAlgo pkix.AlgorithmIdentifier `json:"signAlgo"`
-}
-
 func (s *KeyUsageService) Sign(sessionId, plainPwd string) error {
 	sms := *s.sessionService
 	signingSessionState, err := sms.GetSessionState(sessionId)
@@ -130,18 +125,21 @@ func (s *KeyUsageService) Sign(sessionId, plainPwd string) error {
 		return err
 	}
 
-	if signingSessionState.state.isTerminated() {
+	signingState := signingSessionState.State
+
+	if signingState.IsTerminated() {
 		return errors.New("Signing Session terminated")
 	}
 
-	switch signingSessionState.state.getStateName() {
-	case signatureRequestedName:
-		keyId, err := signingSessionState.state.getKeyId()
-		dtbsr, err := signingSessionState.state.getDtbsr()
-		signInfo, err := signingSessionState.state.getSignInfo()
+	switch signingState.GetStateName() {
+	case sm.SignatureRequestedName:
+		keyId, err := signingState.GetKeyId()
+		dtbsr, err := signingState.GetDtbsr()
+		signInfo, err := signingState.GetSignInfo()
 		if err != nil {
 			return err
 		}
+
 		if (signInfo.SignAlgo.Algorithm.Equal(rsaEncryptionOid) && signInfo.HashAlgo.Algorithm.Equal(sha256HashAlgoOid)) ||
 			signInfo.SignAlgo.Algorithm.Equal(sha256WithRSAEncryptionOid) {
 
@@ -156,7 +154,7 @@ func (s *KeyUsageService) Sign(sessionId, plainPwd string) error {
 					return err
 				}
 
-				return sms.UpdateSession(sessionId, &Signed{
+				return sms.UpdateSession(sessionId, &sm.Signed{
 					SignatureValue: base64.StdEncoding.EncodeToString(*signature),
 				})
 
@@ -187,14 +185,14 @@ func (s *KeyUsageService) GetSignature(sessionId string) (signatureValue *[]byte
 		return nil, err
 	}
 
-	if signingSessionState.state.isTerminated() {
+	if signingSessionState.State.IsTerminated() {
 		return nil, errors.New("Session terminated")
 	}
 
-	state := signingSessionState.state.getStateName()
+	state := signingSessionState.State.GetStateName()
 	switch state {
-	case signedName:
-		signature, err := signingSessionState.state.getSignatureValue()
+	case sm.SignedName:
+		signature, err := signingSessionState.State.GetSignatureValue()
 		if err != nil {
 			return nil, err
 		}

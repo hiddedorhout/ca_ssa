@@ -13,6 +13,8 @@ import (
 var baseUrl string
 var port string
 
+type AAAA struct{}
+
 func init() {
 	baseUrl = "http://localhost"
 	port = "3000"

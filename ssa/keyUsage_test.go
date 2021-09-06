@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	sm "github.com/hiddedorhout/ca_ssa/session"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -48,7 +49,7 @@ func (sms mockSessionManagementService) CreateSession(keyId string) (sessionId *
 
 var updateSessionMock func(sessionId string) error
 
-func (sms mockSessionManagementService) UpdateSession(sessionId string, event Event) error {
+func (sms mockSessionManagementService) UpdateSession(sessionId string, event sm.Event) error {
 	return updateSessionMock(sessionId)
 }
 
@@ -58,9 +59,9 @@ func (sms mockSessionManagementService) TerminateSession(sessionId, reason strin
 	return terminaSessionMock(sessionId, reason)
 }
 
-var getSessionStateMock func(sessionId string) (sessionState *SessionState, err error)
+var getSessionStateMock func(sessionId string) (sessionState *sm.SessionState, err error)
 
-func (sms mockSessionManagementService) GetSessionState(sessionId string) (sessionState *SessionState, err error) {
+func (sms mockSessionManagementService) GetSessionState(sessionId string) (sessionState *sm.SessionState, err error) {
 	return getSessionStateMock(sessionId)
 }
 
@@ -78,7 +79,7 @@ func TestKeyUsageService(t *testing.T) {
 	mock.ExpectPrepare("SELECT keyId FROM keyBindings")
 
 	var klms KeyLifeCycleManagement
-	var sms SessionManagement
+	var sms sm.SessionManagement
 
 	klms = mockKeyLifeCycleManagementService{}
 	sms = mockSessionManagementService{}
@@ -113,20 +114,20 @@ func TestKeyUsageService(t *testing.T) {
 
 	mockKeyId := "keyId"
 	tbsd := []byte("tbs")
-	signInfo := SignInfo{
+	signInfo := sm.SignInfo{
 		SignAlgo: pkix.AlgorithmIdentifier{Algorithm: []int{1, 2, 840, 113549, 1, 1, 11}},
 	}
 
 	sessionId := "sessionId"
-	getSessionStateMock = func(sessionId string) (sessionState *SessionState, err error) {
-		state := SessionState{
-			state: SigningState{
-				currentStateName: signatureRequestedName,
-				userId:           user.UserId,
-				keyId:            mockKeyId,
-				dtbsr:            tbsd,
-				signInfo:         signInfo,
-				terminated:       false,
+	getSessionStateMock = func(sessionId string) (sessionState *sm.SessionState, err error) {
+		state := sm.SessionState{
+			State: sm.SigningState{
+				CurrentStateName: sm.SignatureRequestedName,
+				UserId:           user.UserId,
+				KeyId:            mockKeyId,
+				Dtbsr:            tbsd,
+				SignInfo:         signInfo,
+				Terminated:       false,
 			},
 		}
 
@@ -164,16 +165,16 @@ func TestKeyUsageService(t *testing.T) {
 		t.Fatalf("Invalid keyId")
 	}
 
-	getSessionStateMock = func(sessionId string) (sessionState *SessionState, err error) {
-		state := SessionState{
-			state: SigningState{
-				currentStateName: signedName,
-				userId:           user.UserId,
-				keyId:            mockKeyId,
-				dtbsr:            tbsd,
-				signInfo:         signInfo,
-				terminated:       false,
-				signatureValue:   sigMock,
+	getSessionStateMock = func(sessionId string) (sessionState *sm.SessionState, err error) {
+		state := sm.SessionState{
+			State: sm.SigningState{
+				CurrentStateName: sm.SignedName,
+				UserId:           user.UserId,
+				KeyId:            mockKeyId,
+				Dtbsr:            tbsd,
+				SignInfo:         signInfo,
+				Terminated:       false,
+				SignatureValue:   sigMock,
 			},
 		}
 

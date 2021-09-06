@@ -3,13 +3,15 @@ package ssa
 import (
 	"database/sql"
 	"fmt"
+
+	sm "github.com/hiddedorhout/ca_ssa/session"
 )
 
 type SsaService struct {
 	db                            *sql.DB
 	keyLifeCycleManagementService *KeyLifeCycleManagement
 	keyUsageService               *KeyUsage
-	sessionManagementService      *SessionManagement
+	sessionManagementService      *sm.SessionManagement
 	baseUrl                       string
 }
 
@@ -17,9 +19,9 @@ func NewSsaService(db *sql.DB, baseUrl, port string) (ssaService *SsaService, er
 
 	var klms KeyLifeCycleManagement
 	var kus KeyUsage
-	var sms SessionManagement
+	var sms sm.SessionManagement
 
-	sessionManagementService, err := CreateSessionService(db)
+	sessionManagementService, err := sm.CreateSessionService(db)
 	if err != nil {
 		return nil, err
 	}

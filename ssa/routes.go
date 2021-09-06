@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+
+	sm "github.com/hiddedorhout/ca_ssa/session"
 )
 
 func (s *SsaService) SetupRoutes() {
@@ -79,10 +81,10 @@ func (s *SsaService) createSignatureRequestHandler(w http.ResponseWriter, r *htt
 		w.Write([]byte(err.Error()))
 	}
 
-	if err := sms.UpdateSession(*sessionId, &SignatureRequested{
+	if err := sms.UpdateSession(*sessionId, &sm.SignatureRequested{
 		KeyId:          *keyId,
 		DataToBeSigned: base64.StdEncoding.EncodeToString(tbsData),
-		SignInfo: SignInfo{
+		SignInfo: sm.SignInfo{
 			SignAlgo: pkix.AlgorithmIdentifier{Algorithm: sha256WithRSAEncryptionOid},
 		},
 	}); err != nil {

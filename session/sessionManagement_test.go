@@ -39,6 +39,8 @@ func TestSessionManagementService(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	sha256WithRSAEncryptionOid := []int{1, 2, 840, 113549, 1, 1, 11}
+
 	event := SignatureRequested{
 		KeyId:          keyId,
 		DataToBeSigned: tbsd,
@@ -56,6 +58,8 @@ func TestSessionManagementService(t *testing.T) {
 
 	rawEvent, _ := json.Marshal(event)
 
+	signatureRequestedName := "signature_requested"
+
 	mock.ExpectQuery("SELECT name, event FROM sessionEvents").
 		WithArgs(sessionId).WillReturnRows(
 		sqlmock.NewRows([]string{"name", "event"}).
@@ -66,11 +70,11 @@ func TestSessionManagementService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if sessionState.state.currentStateName != signatureRequestedName {
+	if sessionState.State.CurrentStateName != signatureRequestedName {
 		t.Fatal(errors.New("Invalid state"))
 	}
 
-	keyIdFromState, err := sessionState.state.getKeyId()
+	keyIdFromState, err := sessionState.State.GetKeyId()
 	if err != nil {
 		t.Fatal(err)
 	}

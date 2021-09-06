@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"crypto/x509/pkix"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -16,6 +17,11 @@ type SessionManagement interface {
 	GetSessionState(sessionId string) (sessionState *SessionState, err error)
 }
 
+type SignInfo struct {
+	HashAlgo pkix.AlgorithmIdentifier `json:"hashAlgo"`
+	SignAlgo pkix.AlgorithmIdentifier `json:"signAlgo"`
+}
+
 type SessionService struct {
 	db              *sql.DB
 	storeEventStmnt *sql.Stmt
@@ -23,23 +29,23 @@ type SessionService struct {
 }
 
 type SessionState struct {
-	state SigningState
+	State SigningState
 }
 
 type State interface {
-	getStateName() string
-	isTerminated() bool
+	GetStateName() string
+	IsTerminated() bool
 }
 
 type Event interface {
-	getName() string
+	GetName() string
 }
 
 var (
-	signatureInitatedName  = "signature_initiated"
-	signatureRequestedName = "signature_requested"
-	signedName             = "signed"
-	terminatedName         = "signing_session_terminated"
+	SignatureInitatedName  = "signature_initiated"
+	SignatureRequestedName = "signature_requested"
+	SignedName             = "signed"
+	TerminatedName         = "signing_session_terminated"
 )
 
 // Type of event
@@ -47,8 +53,8 @@ type SigningSessionInitiated struct {
 	UserId string `json:"userId"`
 }
 
-func (si *SigningSessionInitiated) getName() string {
-	return signatureInitatedName
+func (si *SigningSessionInitiated) GetName() string {
+	return SignatureInitatedName
 }
 
 // Type of event
@@ -58,8 +64,8 @@ type SignatureRequested struct {
 	SignInfo       SignInfo `json:"signInfo"`
 }
 
-func (sr *SignatureRequested) getName() string {
-	return signatureRequestedName
+func (sr *SignatureRequested) GetName() string {
+	return SignatureRequestedName
 }
 
 // Type of event
@@ -67,8 +73,8 @@ type Signed struct {
 	SignatureValue string `json:"signatureValue"`
 }
 
-func (s *Signed) getName() string {
-	return signedName
+func (s *Signed) GetName() string {
+	return SignedName
 }
 
 // Type of event
@@ -76,57 +82,57 @@ type Terminated struct {
 	Reason string `json:"reason"`
 }
 
-func (s *Terminated) getName() string {
-	return terminatedName
+func (s *Terminated) GetName() string {
+	return TerminatedName
 }
 
 type SigningState struct {
-	currentStateName string
-	userId           string
-	keyId            string
-	dtbsr            []byte
-	signInfo         SignInfo
-	signatureValue   []byte
-	terminated       bool
+	CurrentStateName string
+	UserId           string
+	KeyId            string
+	Dtbsr            []byte
+	SignInfo         SignInfo
+	SignatureValue   []byte
+	Terminated       bool
 }
 
-func (s *SigningState) getStateName() string {
-	return s.currentStateName
+func (s *SigningState) GetStateName() string {
+	return s.CurrentStateName
 }
 
-func (s *SigningState) isTerminated() bool {
-	return s.terminated
+func (s *SigningState) IsTerminated() bool {
+	return s.Terminated
 }
 
-func (s *SigningState) getKeyId() (*string, error) {
-	if len(s.keyId) == 0 {
+func (s *SigningState) GetKeyId() (*string, error) {
+	if len(s.KeyId) == 0 {
 		return nil, errors.New("keyId not set")
 	} else {
-		return &s.keyId, nil
+		return &s.KeyId, nil
 	}
 }
 
-func (s *SigningState) getDtbsr() (*[]byte, error) {
-	if len(s.dtbsr) == 0 {
+func (s *SigningState) GetDtbsr() (*[]byte, error) {
+	if len(s.Dtbsr) == 0 {
 		return nil, errors.New("dtbsr not set")
 	} else {
-		return &s.dtbsr, nil
+		return &s.Dtbsr, nil
 	}
 }
 
-func (s *SigningState) getSignInfo() (*SignInfo, error) {
-	if len(s.signInfo.SignAlgo.Algorithm.String()) == 0 {
+func (s *SigningState) GetSignInfo() (*SignInfo, error) {
+	if len(s.SignInfo.SignAlgo.Algorithm.String()) == 0 {
 		return nil, errors.New("SignInfo not set")
 	} else {
-		return &s.signInfo, nil
+		return &s.SignInfo, nil
 	}
 }
 
-func (s *SigningState) getSignatureValue() (*[]byte, error) {
-	if len(s.signatureValue) == 0 {
+func (s *SigningState) GetSignatureValue() (*[]byte, error) {
+	if len(s.SignatureValue) == 0 {
 		return nil, errors.New("Signature value not set")
 	} else {
-		return &s.signatureValue, nil
+		return &s.SignatureValue, nil
 	}
 }
 
@@ -173,7 +179,7 @@ func (s *SessionService) CreateSession(userId string) (sessionId *string, err er
 		return nil, err
 	}
 
-	if _, err := s.storeEventStmnt.Exec(eventId, sessionIdentifier, event.getName(), sessionInit); err != nil {
+	if _, err := s.storeEventStmnt.Exec(eventId, sessionIdentifier, event.GetName(), sessionInit); err != nil {
 		return nil, err
 	}
 
@@ -188,7 +194,7 @@ func (s *SessionService) UpdateSession(sessionId string, event Event) error {
 		return err
 	}
 
-	if _, err := s.storeEventStmnt.Exec(eventId, sessionId, event.getName(), rawEvent); err != nil {
+	if _, err := s.storeEventStmnt.Exec(eventId, sessionId, event.GetName(), rawEvent); err != nil {
 		return err
 	}
 	return nil
@@ -206,7 +212,7 @@ func (s *SessionService) TerminateSession(sessionId, reason string) error {
 		return err
 	}
 
-	if _, err := s.storeEventStmnt.Exec(eventId, sessionId, event.getName(), rawEvent); err != nil {
+	if _, err := s.storeEventStmnt.Exec(eventId, sessionId, event.GetName(), rawEvent); err != nil {
 		return err
 	}
 	return nil
@@ -229,7 +235,7 @@ func (s *SessionService) GetSessionState(sessionId string) (sessionState *Sessio
 		}
 
 		switch name {
-		case signatureInitatedName:
+		case SignatureInitatedName:
 			var e Event
 			var i SigningSessionInitiated
 			if err := json.Unmarshal(payload, &i); err != nil {
@@ -237,7 +243,7 @@ func (s *SessionService) GetSessionState(sessionId string) (sessionState *Sessio
 			}
 			e = &i
 			events = append(events, e)
-		case signatureRequestedName:
+		case SignatureRequestedName:
 			var e Event
 			var i SignatureRequested
 			if err := json.Unmarshal(payload, &i); err != nil {
@@ -245,7 +251,7 @@ func (s *SessionService) GetSessionState(sessionId string) (sessionState *Sessio
 			}
 			e = &i
 			events = append(events, e)
-		case signedName:
+		case SignedName:
 			var e Event
 			var i Signed
 			if err := json.Unmarshal(payload, &i); err != nil {
@@ -253,7 +259,7 @@ func (s *SessionService) GetSessionState(sessionId string) (sessionState *Sessio
 			}
 			e = &i
 			events = append(events, e)
-		case terminatedName:
+		case TerminatedName:
 			var e Event
 			var i Terminated
 			if err := json.Unmarshal(payload, &i); err != nil {
@@ -272,7 +278,7 @@ func (s *SessionService) GetSessionState(sessionId string) (sessionState *Sessio
 	}
 
 	return &SessionState{
-		state: *state,
+		State: *state,
 	}, nil
 }
 
@@ -286,15 +292,15 @@ func eventsToState(events []Event) (*SigningState, error) {
 
 	var eventsNames []string
 	for _, e := range events {
-		switch e.getName() {
-		case terminatedName:
+		switch e.GetName() {
+		case TerminatedName:
 			isTerminated = true
-			eventsNames = append(eventsNames, e.getName())
-		case signatureInitatedName:
+			eventsNames = append(eventsNames, e.GetName())
+		case SignatureInitatedName:
 			init := e.(*SigningSessionInitiated)
 			userId = init.UserId
-			eventsNames = append(eventsNames, e.getName())
-		case signatureRequestedName:
+			eventsNames = append(eventsNames, e.GetName())
+		case SignatureRequestedName:
 			srn := e.(*SignatureRequested)
 			tbsData, err := base64.StdEncoding.DecodeString(srn.DataToBeSigned)
 			if err != nil {
@@ -303,26 +309,26 @@ func eventsToState(events []Event) (*SigningState, error) {
 			signInfo = srn.SignInfo
 			dtbsr = tbsData
 			keyId = srn.KeyId
-			eventsNames = append(eventsNames, e.getName())
-		case signedName:
+			eventsNames = append(eventsNames, e.GetName())
+		case SignedName:
 			s := e.(*Signed)
 			sv, err := base64.StdEncoding.DecodeString(s.SignatureValue)
 			if err != nil {
 				return nil, err
 			}
 			signatureValue = sv
-			eventsNames = append(eventsNames, e.getName())
+			eventsNames = append(eventsNames, e.GetName())
 		}
 
 	}
 
 	return &SigningState{
-		currentStateName: eventsNames[len(eventsNames)-1],
-		userId:           userId,
-		keyId:            keyId,
-		dtbsr:            dtbsr,
-		signInfo:         signInfo,
-		signatureValue:   signatureValue,
-		terminated:       isTerminated,
+		CurrentStateName: eventsNames[len(eventsNames)-1],
+		UserId:           userId,
+		KeyId:            keyId,
+		Dtbsr:            dtbsr,
+		SignInfo:         signInfo,
+		SignatureValue:   signatureValue,
+		Terminated:       isTerminated,
 	}, nil
 }
