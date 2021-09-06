@@ -6,14 +6,13 @@ import (
 	"log"
 	"net/http"
 
+	sm "github.com/hiddedorhout/ca_ssa/session"
 	ssa "github.com/hiddedorhout/ca_ssa/ssa"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 var baseUrl string
 var port string
-
-type AAAA struct{}
 
 func init() {
 	baseUrl = "http://localhost"
@@ -25,7 +24,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ssaService, err := ssa.NewSsaService(db, baseUrl, port)
+
+	var sms sm.SessionManagement
+	sessionManagementService, err := sm.CreateSessionService(db)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	sms = sessionManagementService
+
+	ssaService, err := ssa.NewSsaService(db, &sms, baseUrl, port)
 	if err != nil {
 		log.Fatal(err)
 	}
