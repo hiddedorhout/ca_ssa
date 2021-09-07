@@ -33,7 +33,7 @@ func main() {
 
 	sms = sessionManagementService
 
-	ssaService, err := ssa.NewSsaService(db, &sms, baseUrl, port)
+	ssaService, err := ssa.NewSsaService(db, sms, baseUrl, port)
 	if err != nil {
 		log.Fatal(err)
 	}

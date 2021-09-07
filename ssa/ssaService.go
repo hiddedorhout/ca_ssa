@@ -15,7 +15,7 @@ type SsaService struct {
 	baseUrl                       string
 }
 
-func NewSsaService(db *sql.DB, sessionManagementService *sm.SessionManagement, baseUrl, port string) (ssaService *SsaService, err error) {
+func NewSsaService(db *sql.DB, sessionManagementService sm.SessionManagement, baseUrl, port string) (ssaService *SsaService, err error) {
 
 	var klms KeyLifeCycleManagement
 	var kus KeyUsage
@@ -26,8 +26,9 @@ func NewSsaService(db *sql.DB, sessionManagementService *sm.SessionManagement, b
 		return nil, err
 	}
 	klms = keyLifecycleService
+	sms = sessionManagementService
 
-	keyUsageService, err := CreateKeyUsageService(sessionManagementService, &klms, db)
+	keyUsageService, err := CreateKeyUsageService(&sms, &klms, db)
 	if err != nil {
 		return nil, err
 	}
