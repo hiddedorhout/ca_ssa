@@ -84,7 +84,9 @@ func TestKeyUsageService(t *testing.T) {
 	klms = mockKeyLifeCycleManagementService{}
 	sms = mockSessionManagementService{}
 
-	keyUsageService, err := CreateKeyUsageService(&sms, &klms, db)
+	mockChannel := make(chan string)
+
+	keyUsageService, err := CreateKeyUsageService(&sms, &klms, db, mockChannel)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@
     <title>{{ .Title }}</title>
 </head>
 <body>
-    <form method="POST" action="/signatures/sign">
+    <form method="POST" action="/ssa/signatures/sign">
         <input type="hidden" value="{{ .SessionId }}" name="sessionId"/>
         <label for="pwd">Password</label>
         <input type="password" id="pwd" name="password">

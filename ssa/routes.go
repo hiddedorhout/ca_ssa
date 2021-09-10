@@ -13,11 +13,11 @@ import (
 )
 
 func (s *SsaService) SetupRoutes() {
-	http.HandleFunc("/create-user", s.userCreationHandler)
-	http.HandleFunc("/signatures/create-request", s.createSignatureRequestHandler)
-	http.HandleFunc("/signatures/request", s.signRequestHandler)
-	http.HandleFunc("/signatures/sign", s.signHandler)
-	http.HandleFunc("/signatures/get-signature", s.getsignatureHandler)
+	http.HandleFunc("/ssa/create-user", s.userCreationHandler)
+	http.HandleFunc("/ssa/signatures/create-request", s.createSignatureRequestHandler)
+	http.HandleFunc("/ssa/signatures/request", s.signRequestHandler)
+	http.HandleFunc("/ssa/signatures/sign", s.signHandler)
+	http.HandleFunc("/ssa/signatures/get-signature", s.getsignatureHandler)
 }
 
 type createUserRequest struct {
@@ -31,7 +31,7 @@ func (s *SsaService) userCreationHandler(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	ks := *s.keyUsageService
+	ks := *s.KeyUsageService
 	user, err := ks.CreateAndBind(req.Password)
 	if err != nil {
 		w.Write([]byte(err.Error()))
@@ -74,7 +74,7 @@ func (s *SsaService) createSignatureRequestHandler(w http.ResponseWriter, r *htt
 		w.Write([]byte(err.Error()))
 	}
 
-	ks := *s.keyUsageService
+	ks := *s.KeyUsageService
 
 	keyId, err := ks.GetKeyId(req.UserId)
 	if err != nil {
@@ -112,7 +112,7 @@ func (s *SsaService) signHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	ks := *s.keyUsageService
+	ks := *s.KeyUsageService
 	if err := ks.Sign(sessionId, password); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
@@ -152,7 +152,7 @@ type signatureResponse struct {
 
 func (s *SsaService) getsignatureHandler(w http.ResponseWriter, r *http.Request) {
 	sessionId := r.URL.Query().Get("sessionId")
-	ks := *s.keyUsageService
+	ks := *s.KeyUsageService
 	signatureValue, err := ks.GetSignature(sessionId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

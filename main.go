@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	ca "github.com/hiddedorhout/ca_ssa/ca"
 	sm "github.com/hiddedorhout/ca_ssa/session"
 	ssa "github.com/hiddedorhout/ca_ssa/ssa"
 	_ "github.com/mattn/go-sqlite3"
@@ -33,14 +34,24 @@ func main() {
 
 	sms = sessionManagementService
 
-	ssaService, err := ssa.NewSsaService(db, sms, baseUrl, port)
+	certCreationChannel := make(chan string)
+
+	ssaService, err := ssa.NewSsaService(db, sms, baseUrl, port, certCreationChannel)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	caService, err := ca.CreateUserCaService(db, sessionManagementService, *ssaService, baseUrl, port, certCreationChannel)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	ssaService.SetupRoutes()
+	caService.SetupRoutes()
 
-	log.Println(fmt.Sprintf("CA Server running on: %s", port))
+	caService.RunCertificateSigner()
+
+	log.Println(fmt.Sprintf("SSA and CA Server running on: %s", port))
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 
 }

@@ -25,6 +25,7 @@ type KeyUsageService struct {
 	getKeyIdStmnt       *sql.Stmt
 	sessionService      *sm.SessionManagement
 	keyLifecycleService *KeyLifeCycleManagement
+	certCreationChannel chan string
 }
 
 type User struct {
@@ -38,7 +39,7 @@ var (
 	sha256WithRSAEncryptionOid = []int{1, 2, 840, 113549, 1, 1, 11}
 )
 
-func CreateKeyUsageService(sessionManagementService *sm.SessionManagement, keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB) (keyUsageService *KeyUsageService, err error) {
+func CreateKeyUsageService(sessionManagementService *sm.SessionManagement, keyLifeCycleManagementService *KeyLifeCycleManagement, db *sql.DB, certCreationChannel chan string) (keyUsageService *KeyUsageService, err error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS keyBindings (
 		userId TEXT NOT NULL,
 		keyId TEXT NOT NULL,
@@ -73,6 +74,7 @@ func CreateKeyUsageService(sessionManagementService *sm.SessionManagement, keyLi
 		getKeyIdStmnt:       getKeyIdStmnt,
 		keyLifecycleService: keyLifeCycleManagementService,
 		sessionService:      sessionManagementService,
+		certCreationChannel: certCreationChannel,
 	}, nil
 }
 
@@ -157,6 +159,45 @@ func (s *KeyUsageService) Sign(sessionId, plainPwd string) error {
 				return sms.UpdateSession(sessionId, &sm.Signed{
 					SignatureValue: base64.StdEncoding.EncodeToString(*signature),
 				})
+
+			} else {
+				return errors.New("Invalid credentials")
+			}
+		} else {
+			return errors.New("Unsuported signing/ hash algorithm")
+		}
+
+	case sm.CSRSigningRequestedName:
+		keyId, err := signingState.GetKeyId()
+		unsignedCsr, err := signingState.GetTbsCsr()
+		signInfo, err := signingState.GetSignInfo()
+		if err != nil {
+			return err
+		}
+		if (signInfo.SignAlgo.Algorithm.Equal(rsaEncryptionOid) && signInfo.HashAlgo.Algorithm.Equal(sha256HashAlgoOid)) ||
+			signInfo.SignAlgo.Algorithm.Equal(sha256WithRSAEncryptionOid) {
+
+			var encodedPwd string
+			if err := s.getPasswordStmnt.QueryRow(keyId).Scan(&encodedPwd); err != nil {
+				return err
+			}
+			if comparePwd([]byte(encodedPwd), []byte(plainPwd)) {
+				kls := *s.keyLifecycleService
+				csr, err := kls.SignCsr(*keyId, *unsignedCsr)
+				if err != nil {
+					return err
+				}
+
+				if err := sms.UpdateSession(sessionId, &sm.CSRSigned{
+					Csr: base64.StdEncoding.EncodeToString(*csr),
+				}); err != nil {
+					return err
+				}
+				go func() {
+					s.certCreationChannel <- sessionId
+				}()
+
+				return nil
 
 			} else {
 				return errors.New("Invalid credentials")

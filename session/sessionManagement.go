@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"crypto/x509"
 	"crypto/x509/pkix"
 	"database/sql"
 	"encoding/base64"
@@ -42,10 +43,12 @@ type Event interface {
 }
 
 var (
-	SignatureInitatedName  = "signature_initiated"
-	SignatureRequestedName = "signature_requested"
-	SignedName             = "signed"
-	TerminatedName         = "signing_session_terminated"
+	SignatureInitatedName   = "signature_initiated"
+	SignatureRequestedName  = "signature_requested"
+	SignedName              = "signed"
+	TerminatedName          = "signing_session_terminated"
+	CSRSigningRequestedName = "csr_signing_requested"
+	CSRSignedName           = "csr_signed"
 )
 
 // Type of event
@@ -86,6 +89,26 @@ func (s *Terminated) GetName() string {
 	return TerminatedName
 }
 
+// Type of event
+type CSRSigningRequested struct {
+	KeyId       string                   `json:"keyId"`
+	UnsignedCsr *x509.CertificateRequest `json:"unsignedCsr"`
+	SignInfo    SignInfo                 `json:"signInfo"`
+}
+
+func (s *CSRSigningRequested) GetName() string {
+	return CSRSigningRequestedName
+}
+
+// Type of event
+type CSRSigned struct {
+	Csr string `json:"signedCsr"`
+}
+
+func (s *CSRSigned) GetName() string {
+	return CSRSignedName
+}
+
 type SigningState struct {
 	CurrentStateName string
 	UserId           string
@@ -93,7 +116,9 @@ type SigningState struct {
 	Dtbsr            []byte
 	SignInfo         SignInfo
 	SignatureValue   []byte
+	SignedCsr        x509.CertificateRequest
 	Terminated       bool
+	TbsCsr           x509.CertificateRequest
 }
 
 func (s *SigningState) GetStateName() string {
@@ -128,11 +153,27 @@ func (s *SigningState) GetSignInfo() (*SignInfo, error) {
 	}
 }
 
+func (s *SigningState) GetTbsCsr() (*x509.CertificateRequest, error) {
+	if len(s.TbsCsr.Subject.CommonName) == 0 {
+		return nil, errors.New("tbs CSR value not set")
+	} else {
+		return &s.TbsCsr, nil
+	}
+}
+
 func (s *SigningState) GetSignatureValue() (*[]byte, error) {
 	if len(s.SignatureValue) == 0 {
 		return nil, errors.New("Signature value not set")
 	} else {
 		return &s.SignatureValue, nil
+	}
+}
+
+func (s *SigningState) GetSignedCsr() (*x509.CertificateRequest, error) {
+	if len(s.SignedCsr.Signature) == 0 {
+		return nil, errors.New("Signed CSR value not set")
+	} else {
+		return &s.SignedCsr, nil
 	}
 }
 
@@ -267,6 +308,22 @@ func (s *SessionService) GetSessionState(sessionId string) (sessionState *Sessio
 			}
 			e = &i
 			events = append(events, e)
+		case CSRSigningRequestedName:
+			var e Event
+			var i CSRSigningRequested
+			if err := json.Unmarshal(payload, &i); err != nil {
+				return nil, err
+			}
+			e = &i
+			events = append(events, e)
+		case CSRSignedName:
+			var e Event
+			var i CSRSigned
+			if err := json.Unmarshal(payload, &i); err != nil {
+				return nil, err
+			}
+			e = &i
+			events = append(events, e)
 		default:
 			return nil, errors.New("Unable to read events")
 		}
@@ -289,6 +346,8 @@ func eventsToState(events []Event) (*SigningState, error) {
 	var signInfo SignInfo
 	var signatureValue []byte
 	var isTerminated bool = false
+	var tbsCsr x509.CertificateRequest
+	var signedCsr x509.CertificateRequest
 
 	var eventsNames []string
 	for _, e := range events {
@@ -310,6 +369,23 @@ func eventsToState(events []Event) (*SigningState, error) {
 			dtbsr = tbsData
 			keyId = srn.KeyId
 			eventsNames = append(eventsNames, e.GetName())
+		case CSRSigningRequestedName:
+			csr := e.(*CSRSigningRequested)
+			keyId = csr.KeyId
+			signInfo = csr.SignInfo
+			tbsCsr = *csr.UnsignedCsr
+			eventsNames = append(eventsNames, e.GetName())
+		case CSRSignedName:
+			cs := e.(*CSRSigned)
+			rawCsr, err := base64.StdEncoding.DecodeString(cs.Csr)
+			if err != nil {
+				return nil, err
+			}
+			csr, err := x509.ParseCertificateRequest(rawCsr)
+			if err != nil {
+				return nil, err
+			}
+			signedCsr = *csr
 		case SignedName:
 			s := e.(*Signed)
 			sv, err := base64.StdEncoding.DecodeString(s.SignatureValue)
@@ -327,8 +403,10 @@ func eventsToState(events []Event) (*SigningState, error) {
 		UserId:           userId,
 		KeyId:            keyId,
 		Dtbsr:            dtbsr,
+		TbsCsr:           tbsCsr,
 		SignInfo:         signInfo,
 		SignatureValue:   signatureValue,
+		SignedCsr:        signedCsr,
 		Terminated:       isTerminated,
 	}, nil
 }
