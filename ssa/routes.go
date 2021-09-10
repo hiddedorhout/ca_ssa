@@ -91,7 +91,7 @@ func (s *SsaService) createSignatureRequestHandler(w http.ResponseWriter, r *htt
 		w.Write([]byte(err.Error()))
 	}
 
-	url := fmt.Sprintf("%s/signatures/request?sessionId=%s", s.baseUrl, *sessionId)
+	url := fmt.Sprintf("%s/ssa/signatures/request?sessionId=%s", s.baseUrl, *sessionId)
 
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(CreateSignatureResponse{SigningUrl: url})

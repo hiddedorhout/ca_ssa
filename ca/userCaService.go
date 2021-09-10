@@ -7,6 +7,7 @@ import (
 	"crypto/x509/pkix"
 	"database/sql"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -98,7 +99,7 @@ func CreateUserCaService(db *sql.DB, sessionService sm.SessionManagement, sssa s
 	}
 
 	getCertificateByUserStmnt, err := db.Prepare(`SELECT 
-	certificate FROM userCertificates WHERE userId=? AND active=1`)
+	keyId, certificate FROM userCertificates WHERE userId=? AND active=1`)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +229,7 @@ func (ucs *UserCaService) CreateCertificate(sessionId string) error {
 		NotAfter:                time.Now().AddDate(1, 0, 0),
 	}
 
-	rawCert, err := x509.CreateCertificate(rand.Reader, &template, rootCertificate, pkey.Public().(*rsa.PublicKey), pkey)
+	rawCert, err := x509.CreateCertificate(rand.Reader, &template, rootCertificate, signedCsr.PublicKey.(*rsa.PublicKey), pkey)
 	if err != nil {
 		return err
 	}
@@ -251,8 +252,43 @@ func (ucs *UserCaService) CreateCertificate(sessionId string) error {
 	return nil
 }
 
+type CertRecord struct {
+	KeyId string
+	Cert  x509.Certificate
+}
+
+func (ucs *UserCaService) GetCertificate(userId string) (*[]CertRecord, error) {
+	var certRecords []CertRecord
+
+	rows, err := ucs.getCertificateByUserStmnt.Query(userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var rawCert []byte
+		var keyId string
+
+		if err := rows.Scan(&keyId, &rawCert); err != nil {
+			return nil, err
+		}
+
+		cert, err := x509.ParseCertificate(rawCert)
+		if err != nil {
+			return nil, err
+		}
+
+		certRecords = append(certRecords, CertRecord{
+			KeyId: keyId,
+			Cert:  *cert,
+		})
+	}
+	return &certRecords, nil
+}
+
 func createSerialNumber() *big.Int {
 	random, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	serial := big.NewInt(random.Int64())
+	serial := big.NewInt(int64(math.Abs(float64(random.Int64()))))
 	return serial
 }
