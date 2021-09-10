@@ -17,7 +17,6 @@ type CreateSignatureResponse struct {
 }
 
 func (ucs *UserCaService) createCertificateHandler(w http.ResponseWriter, r *http.Request) {
-	// takes a form with user info
 	var body CreateCSRRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
